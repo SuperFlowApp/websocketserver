@@ -1,90 +1,113 @@
-import WebSocket from "ws"; // Ensure you have the 'ws' package installed
+import WebSocket from "ws";
 import express from "express";
-import cors from "cors"; // Install using `npm install cors`
+import cors from "cors";
 
 const app = express();
 const PORT = 3002;
 
-// Enable CORS for all routes
 app.use(cors());
 
-// Store WebSocket data to broadcast to clients
-let latestOrderBookData = null;
-let ws = null; // Declare ws globally
+// Store latest data for each stream
+const latestData = {
+  orderbook: null,
+  trades: null,
+};
+
+// Store WebSocket instances
+const wsConnections = {};
 
 /**
- * Connects to the WebSocket server and listens for messages.
- * @param {string} url - The WebSocket URL to connect to.
+ * Connects to a WebSocket and updates latestData.
+ * @param {string} key - 'orderbook' or 'trades'
+ * @param {string} url - WebSocket URL
  */
-function fetchOrderBookData(url) {
-  ws = new WebSocket(url); // Assign to global ws variable
+function fetchWebSocketData(key, url) {
+  const ws = new WebSocket(url);
+  wsConnections[key] = ws;
 
   ws.on("open", () => {
-    console.log("WebSocket connection established.");
+    console.log(`WebSocket (${key}) connection established.`);
   });
 
   ws.on("message", (data) => {
     try {
       const parsedData = JSON.parse(data);
-      latestOrderBookData = parsedData; // Update the latest data
+      latestData[key] = parsedData;
+      // Notify listeners if any
+      if (listeners[key]) {
+        listeners[key].forEach((fn) => fn(parsedData));
+      }
     } catch (error) {
-      console.error("Error parsing WebSocket message:", error);
+      console.error(`Error parsing WebSocket (${key}) message:`, error);
     }
   });
 
   ws.on("close", () => {
-    console.log("WebSocket connection closed.");
+    console.log(`WebSocket (${key}) connection closed.`);
   });
 
   ws.on("error", (error) => {
-    console.error("WebSocket error:", error);
+    console.error(`WebSocket (${key}) error:`, error);
   });
 }
 
-// Start fetching WebSocket data
-const websocketUrl = "wss://meta-test.rasa.capital/ws/orderbook/BTCUSDT";
-fetchOrderBookData(websocketUrl);
+// Listeners for SSE clients
+const listeners = {
+  orderbook: [],
+  trades: [],
+};
 
-// SSE endpoint to stream WebSocket data
+// Start fetching both streams
+fetchWebSocketData("orderbook", "wss://meta-test.rasa.capital/ws/orderbook/BTCUSDT");
+fetchWebSocketData("trades", "wss://meta-test.rasa.capital/ws/trades/BTCUSDT");
+
+// SSE endpoint for orderbook
 app.get("/stream/orderbook", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
 
-  // Function to send data to the client
+  // Send latest data immediately
+  if (latestData.orderbook) {
+    res.write(`data: ${JSON.stringify(latestData.orderbook)}\n\n`);
+  }
+
+  // Listener function
   const sendData = (data) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
-
-  // Send the latest data immediately upon connection
-  if (latestOrderBookData) {
-    sendData(latestOrderBookData);
-  }
-
-  // Listener for data changes
-  const onDataChange = (data) => {
-    sendData(data);
-  };
-
-  // Attach the listener to WebSocket data updates
-  ws.on("message", (data) => {
-    try {
-      const parsedData = JSON.parse(data);
-      latestOrderBookData = parsedData; // Update the latest data
-      onDataChange(parsedData); // Send data to SSE client
-    } catch (error) {
-      console.error("Error parsing WebSocket message:", error);
-    }
-  });
+  listeners.orderbook.push(sendData);
 
   req.on("close", () => {
-    console.log("Client disconnected from SSE.");
+    // Remove listener on disconnect
+    listeners.orderbook = listeners.orderbook.filter((fn) => fn !== sendData);
+    console.log("Client disconnected from SSE (orderbook).");
   });
 });
 
-// Start the server
+// SSE endpoint for trades
+app.get("/stream/trades", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  if (latestData.trades) {
+    res.write(`data: ${JSON.stringify(latestData.trades)}\n\n`);
+  }
+
+  const sendData = (data) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+  listeners.trades.push(sendData);
+
+  req.on("close", () => {
+    listeners.trades = listeners.trades.filter((fn) => fn !== sendData);
+    console.log("Client disconnected from SSE (trades).");
+  });
+});
+
 app.listen(PORT, () => {
-  console.log(
-    `SSE server running on http://localhost:${PORT}/stream/orderbook`
-  );
+  console.log(`SSE server running on:`);
+  console.log(`  http://localhost:${PORT}/stream/orderbook`);
+  console.log(`  http://localhost:${PORT}/stream/trades`);
 });
