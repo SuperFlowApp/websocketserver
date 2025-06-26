@@ -11,6 +11,9 @@ app.use(cors());
 // Store WebSocket data to broadcast to clients
 let latestOrderBookData = null;
 let ws = null; // Declare ws globally
+let reconnectAttempts = 0;
+const maxReconnectAttempts = 10;
+const reconnectDelay = 5000; // 5 seconds
 
 /**
  * Connects to the WebSocket server and listens for messages.
@@ -21,6 +24,7 @@ function fetchOrderBookData(url) {
 
   ws.on("open", () => {
     console.log("WebSocket connection established.");
+    reconnectAttempts = 0; // Reset reconnect attempts on successful connection
   });
 
   ws.on("message", (data) => {
@@ -32,13 +36,36 @@ function fetchOrderBookData(url) {
     }
   });
 
-  ws.on("close", () => {
-    console.log("WebSocket connection closed.");
+  ws.on("close", (code, reason) => {
+    console.log(`WebSocket connection closed. Code: ${code}, Reason: ${reason}`);
+    attemptReconnect(url);
   });
 
   ws.on("error", (error) => {
     console.error("WebSocket error:", error);
+    attemptReconnect(url);
   });
+}
+
+/**
+ * Attempts to reconnect to the WebSocket server with exponential backoff
+ * @param {string} url - The WebSocket URL to reconnect to
+ */
+function attemptReconnect(url) {
+  if (reconnectAttempts >= maxReconnectAttempts) {
+    console.error(`Max reconnection attempts (${maxReconnectAttempts}) reached. Stopping reconnection.`);
+    return;
+  }
+
+  reconnectAttempts++;
+  const delay = reconnectDelay * Math.pow(2, reconnectAttempts - 1); // Exponential backoff
+  
+  console.log(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts}) in ${delay}ms...`);
+  
+  setTimeout(() => {
+    console.log(`Reconnecting to WebSocket... (Attempt ${reconnectAttempts})`);
+    fetchOrderBookData(url);
+  }, delay);
 }
 
 // Start fetching WebSocket data
