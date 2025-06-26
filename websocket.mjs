@@ -61,24 +61,23 @@ app.get("/stream/orderbook", (req, res) => {
     sendData(latestOrderBookData);
   }
 
-  // Listener for data changes
-  const onDataChange = (data) => {
-    sendData(data);
-  };
-
-  // Attach the listener to WebSocket data updates
-  ws.on("message", (data) => {
-    try {
-      const parsedData = JSON.parse(data);
-      latestOrderBookData = parsedData; // Update the latest data
-      onDataChange(parsedData); // Send data to SSE client
-    } catch (error) {
-      console.error("Error parsing WebSocket message:", error);
+  // Set up continuous streaming at 10 FPS (every 100ms)
+  const streamInterval = setInterval(() => {
+    if (latestOrderBookData) {
+      sendData(latestOrderBookData);
     }
-  });
+  }, 100); // 100ms = 10 FPS
 
+  // Clean up when client disconnects
   req.on("close", () => {
     console.log("Client disconnected from SSE.");
+    clearInterval(streamInterval); // Stop the streaming interval
+  });
+
+  // Handle client disconnect on error
+  req.on("error", () => {
+    console.log("SSE connection error, cleaning up.");
+    clearInterval(streamInterval);
   });
 });
 
