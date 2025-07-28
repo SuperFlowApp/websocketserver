@@ -69,7 +69,7 @@ function attemptReconnect(url) {
 }
 
 // Start fetching WebSocket data
-const websocketUrl = "wss://meta-test.rasa.capital/ws/orderbook/BTCUSDT";
+const websocketUrl = "wss://superflow.exchange/ws/trades/BTCUSDT";
 fetchOrderBookData(websocketUrl);
 
 // SSE endpoint to stream WebSocket data
