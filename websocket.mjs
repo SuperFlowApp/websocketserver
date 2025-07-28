@@ -3,7 +3,7 @@ import express from "express";
 import cors from "cors"; // Install using `npm install cors`
 
 const app = express();
-const PORT = 3002;
+const PORT = process.env.PORT || 3002;
 
 // Enable CORS for all routes
 app.use(cors());
@@ -74,37 +74,48 @@ fetchOrderBookData(websocketUrl);
 
 // SSE endpoint to stream WebSocket data
 app.get("/stream/orderbook", (req, res) => {
+  const symbol = (req.query.symbol || "BTCUSDT").toUpperCase();
+  const websocketUrl = `wss://superflow.exchange/ws/trades/${symbol}`;
+
+  let latestOrderBookData = null;
+  let ws = new WebSocket(websocketUrl);
+
+  ws.on("open", () => {
+    console.log(`WebSocket connection established for ${symbol}`);
+  });
+
+  ws.on("message", (data) => {
+    try {
+      latestOrderBookData = JSON.parse(data);
+    } catch (error) {
+      console.error("Error parsing WebSocket message:", error);
+    }
+  });
+
+  ws.on("close", () => {
+    console.log(`WebSocket closed for ${symbol}`);
+  });
+
+  ws.on("error", (error) => {
+    console.error("WebSocket error:", error);
+  });
+
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
 
-  // Function to send data to the client
-  const sendData = (data) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  const sendData = () => {
+    if (latestOrderBookData) {
+      res.write(`data: ${JSON.stringify(latestOrderBookData)}\n\n`);
+    }
   };
 
-  // Send the latest data immediately upon connection
-  if (latestOrderBookData) {
-    sendData(latestOrderBookData);
-  }
+  const streamInterval = setInterval(sendData, 100);
 
-  // Set up continuous streaming at 10 FPS (every 100ms)
-  const streamInterval = setInterval(() => {
-    if (latestOrderBookData) {
-      sendData(latestOrderBookData);
-    }
-  }, 100); // 100ms = 10 FPS
-
-  // Clean up when client disconnects
   req.on("close", () => {
-    console.log("Client disconnected from SSE.");
-    clearInterval(streamInterval); // Stop the streaming interval
-  });
-
-  // Handle client disconnect on error
-  req.on("error", () => {
-    console.log("SSE connection error, cleaning up.");
     clearInterval(streamInterval);
+    ws.close();
+    console.log("Client disconnected from SSE.");
   });
 });
 
