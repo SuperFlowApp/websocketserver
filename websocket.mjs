@@ -68,14 +68,10 @@ function attemptReconnect(url) {
   }, delay);
 }
 
-// Start fetching WebSocket data
-const websocketUrl = "wss://superflow.exchange/ws/trades/BTCUSDT";
-fetchOrderBookData(websocketUrl);
 
-// SSE endpoint to stream WebSocket data
 app.get("/stream/orderbook", (req, res) => {
   const symbol = (req.query.symbol || "BTCUSDT").toUpperCase();
-  const websocketUrl = `wss://superflow.exchange/ws/trades/${symbol}`;
+  const websocketUrl = `wss://superflow.exchange/ws/orderbook/${symbol}`; // <-- FIXED
 
   let latestOrderBookData = null;
   let ws = new WebSocket(websocketUrl);
